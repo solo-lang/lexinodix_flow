@@ -30,7 +30,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     .or(`title.ilike.%${safeQuery}%,content_text.ilike.%${safeQuery}%`)
     .limit(10);
 
-  notes?.forEach(note => {
+  (notes as any[])?.forEach(note => {
     const excerpt = note.content_text
       ? extractExcerpt(note.content_text, safeQuery)
       : null;
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     .ilike('original_name', `%${safeQuery}%`)
     .limit(10);
 
-  files?.forEach(file => {
+  (files as any[])?.forEach(file => {
     results.push({
       id: file.id,
       type: 'file',
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     .or(`name.ilike.%${safeQuery}%,description.ilike.%${safeQuery}%`)
     .limit(5);
 
-  workspaces?.forEach(ws => {
+  (workspaces as any[])?.forEach(ws => {
     results.push({
       id: ws.id,
       type: 'workspace',
