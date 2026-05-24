@@ -54,7 +54,7 @@ export default async function WorkspacePage() {
       {/* Workspace Grid */}
       {workspaces && workspaces.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {workspaces.map(ws => (
+          {(workspaces as any[]).map(ws => (
             <Link
               key={ws.id}
               href={`/workspace/${ws.id}`}
