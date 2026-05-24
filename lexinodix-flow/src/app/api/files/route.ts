@@ -33,7 +33,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse<ApiResp
   // Remove from storage
   const { error: storageError } = await supabase.storage
     .from('user-files')
-    .remove([file.storage_path]);
+    .remove([(file as any).storage_path]);
 
   if (storageError) {
     console.error('Storage delete error:', storageError);
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
 
   const { data: signedUrl } = await supabase.storage
     .from('user-files')
-    .createSignedUrl(file.storage_path, 3600); // 1 hour expiry
+    .createSignedUrl((file as any).storage_path, 3600); // 1 hour expiry
 
   if (!signedUrl?.signedUrl) {
     return NextResponse.json({ success: false, error: 'Could not generate URL' }, { status: 500 });
