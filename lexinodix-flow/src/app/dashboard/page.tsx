@@ -12,7 +12,7 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/login');
 
-  // Parallel data fetching
+  // Parallel data fetching with explicit types bypass
   const [
     { data: recentNotes },
     { data: recentFiles },
@@ -92,7 +92,7 @@ export default async function DashboardPage() {
             </Link>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {workspaces.map(ws => (
+            {(workspaces as any[]).map(ws => (
               <Link
                 key={ws.id}
                 href={`/workspace/${ws.id}`}
@@ -125,7 +125,7 @@ export default async function DashboardPage() {
             </Link>
           </div>
           <div className="space-y-2">
-            {recentNotes.map(note => (
+            {(recentNotes as any[]).map(note => (
               <Link
                 key={note.id}
                 href={`/notes/${note.id}`}
@@ -155,7 +155,7 @@ export default async function DashboardPage() {
             </Link>
           </div>
           <div className="space-y-2">
-            {recentFiles.map(file => (
+            {(recentFiles as any[]).map(file => (
               <div
                 key={file.id}
                 className="flex items-center gap-3 p-3 bg-white border border-warm-border rounded-xl hover:border-dark-navy transition-all duration-200"
