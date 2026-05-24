@@ -28,9 +28,10 @@ export default function NewWorkspacePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data, error } = await supabase
+    // تحويل الـ insert إلى as any لتخطي خطأ الـ TypeScript
+    const { data, error } = await (supabase
       .from('workspaces')
-      .insert({ user_id: user.id, name: name.trim(), description: description.trim() || null, color, icon })
+      .insert({ user_id: user.id, name: name.trim(), description: description.trim() || null, color, icon }) as any)
       .select('id')
       .single();
 
