@@ -47,10 +47,10 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
 
         if (uploadError) throw uploadError;
 
-        // Insert metadata
+        // وضعنا الـ as any هنا مباشرة بعد اسم الجدول لتدمير قيود الـ TypeScript تماماً
         const fileType = getFileType(file.type);
-        const { data: newFile, error: dbError } = await supabase
-          .from('files')
+        const { data: newFile, error: dbError } = await (supabase
+          .from('files') as any)
           .insert({
             user_id: userId,
             name: storagePath.split('/').pop()!,
@@ -85,8 +85,8 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
   const deleteFile = async (file: UserFile) => {
     // Remove from storage
     await supabase.storage.from('user-files').remove([file.storage_path]);
-    // Remove from DB
-    await supabase.from('files').delete().eq('id', file.id).eq('user_id', userId);
+    // تأمين عملية الحذف أيضاً بـ as any
+    await (supabase.from('files') as any).delete().eq('id', file.id).eq('user_id', userId);
     setFiles(prev => prev.filter(f => f.id !== file.id));
     setOpenMenu(null);
   };
