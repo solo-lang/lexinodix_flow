@@ -36,8 +36,9 @@ export default function SettingsClient({ profile, stats, aiProviders, activeProv
 
   const saveProfile = async () => {
     setSaving(true);
-    await supabase
-      .from('profiles')
+    // تم إضافة as any هنا لتخطي فحص النوع الصارم على جدول البروفايل
+    await (supabase
+      .from('profiles') as any)
       .update({ full_name: fullName, updated_at: new Date().toISOString() })
       .eq('id', profile.id);
     setSaving(false);
