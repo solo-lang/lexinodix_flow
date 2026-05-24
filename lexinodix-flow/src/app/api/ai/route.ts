@@ -61,11 +61,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
     let notesContent: string[] = [];
     let userName: string | undefined;
 
-            // Get user name
+    // Get user name
     const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single();
     userName = (profile as any)?.full_name ?? undefined;
-
-
 
     // Fetch notes content (user-scoped — RLS enforced)
     if (data.context?.notes?.length) {
@@ -75,11 +73,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
         .in('id', data.context.notes)
         .eq('user_id', user.id); // Explicit user isolation
 
-      notesContent = notes?.map(n => `${n.title}\n${n.content_text ?? ''}`) ?? [];
+      notesContent = (notes as any[])?.map(n => `${n.title}\n${n.content_text ?? ''}`) ?? [];
     }
 
     // Fetch files content (user-scoped — RLS enforced)
-    // For now send file metadata; full text extraction can be added with a text extraction service
     if (data.context?.files?.length) {
       const { data: files } = await supabase
         .from('files')
@@ -87,7 +84,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
         .in('id', data.context.files)
         .eq('user_id', user.id); // Explicit user isolation
 
-      filesContent = files?.map(f => `File: ${f.original_name} (${f.file_type})`) ?? [];
+      filesContent = (files as any[])?.map(f => `File: ${f.original_name} (${f.file_type})`) ?? [];
     }
 
     const systemPrompt = buildWorkspaceSystemPrompt({ filesContent, notesContent, userName });
