@@ -19,8 +19,9 @@ export default async function NotesPage() {
     .order('is_pinned', { ascending: false })
     .order('updated_at', { ascending: false });
 
-  const pinned = notes?.filter(n => n.is_pinned) ?? [];
-  const recent = notes?.filter(n => !n.is_pinned) ?? [];
+  // استخدام (notes as any[]) لمنع خطأ الـ TypeScript (never)
+  const pinned = (notes as any[])?.filter(n => n.is_pinned) ?? [];
+  const recent = (notes as any[])?.filter(n => !n.is_pinned) ?? [];
 
   return (
     <div className="space-y-8">
@@ -100,7 +101,7 @@ export default async function NotesPage() {
   );
 }
 
-function NoteCard({ note }: { note: { id: string; title: string; content_text: string | null; tags: string[]; updated_at: string } }) {
+function NoteCard({ note }: { note: any }) {
   return (
     <Link
       href={`/notes/${note.id}`}
@@ -118,7 +119,7 @@ function NoteCard({ note }: { note: { id: string; title: string; content_text: s
         <p className="text-[10px] text-neutral-gray">{timeAgo(note.updated_at)}</p>
         {note.tags && note.tags.length > 0 && (
           <div className="flex gap-1 flex-wrap">
-            {note.tags.slice(0, 2).map(tag => (
+            {note.tags.slice(0, 2).map((tag: string) => (
               <span key={tag} className="tag text-[10px]">{tag}</span>
             ))}
           </div>
