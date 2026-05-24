@@ -40,7 +40,8 @@ class GrokProvider implements AIProviderInterface {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile', // تم تعديل الموديل لأقوى موديل مجاني متاح في Groq حالياً
+model: (override as string) === 'grok-beta' ? 'llama-3.3-70b-versatile' : 'llama-3.3-70b-versatile',
+        
         messages: allMessages,
         temperature: 0.7,
         max_tokens: 2048,
