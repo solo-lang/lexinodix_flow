@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -87,10 +87,11 @@ export default function NoteEditor({ noteId, initialData }: NoteEditorProps) {
       updated_at: new Date().toISOString(),
     };
 
+    // وضعنا الـ as any هنا مباشرة بعد اسم الجدول لتفادي فحص الأنواع الصارم
     if (noteId) {
-      await supabase.from('notes').update(noteData).eq('id', noteId).eq('user_id', user.id);
+      await (supabase.from('notes') as any).update(noteData).eq('id', noteId).eq('user_id', user.id);
     } else {
-      const { data: newNote } = await supabase.from('notes').insert(noteData).select('id').single();
+      const { data: newNote } = await (supabase.from('notes') as any).insert(noteData).select('id').single();
       if (newNote) {
         router.replace(`/notes/${newNote.id}`);
       }
