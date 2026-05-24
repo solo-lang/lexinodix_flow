@@ -25,12 +25,13 @@ export default async function SettingsPage() {
   const { data: fileSizeData } = await supabase
     .from('files').select('size_bytes').eq('user_id', user.id);
 
-  const totalBytes = fileSizeData?.reduce((sum, f) => sum + (f.size_bytes ?? 0), 0) ?? 0;
+  // تحويل fileSizeData إلى as any[] لمنع أخطاء الـ Type matching في الـ reduce
+  const totalBytes = (fileSizeData as any[])?.reduce((sum, f) => sum + (f.size_bytes ?? 0), 0) ?? 0;
   const providers = listAvailableProviders();
 
   return (
     <SettingsClient
-      profile={profile ?? { id: user.id, email: user.email ?? '', full_name: null, avatar_url: null, created_at: '', updated_at: '' }}
+      profile={(profile as any) ?? { id: user.id, email: user.email ?? '', full_name: null, avatar_url: null, created_at: '', updated_at: '' }}
       stats={{ noteCount: noteCount ?? 0, fileCount: fileCount ?? 0, totalBytes }}
       aiProviders={providers}
       activeProvider={process.env.AI_PROVIDER ?? 'grok'}
