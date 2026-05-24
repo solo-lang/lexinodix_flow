@@ -1,6 +1,6 @@
 // ============================================================
 // LEXINODIX FLOW — AI PROVIDER ABSTRACTION LAYER
-// Modular AI provider system supporting multiple backends.
+// Modular AI provider system supporting multiple backends (Converted to Groq Free).
 // ============================================================
 
 import type { AIMessage, AIProvider, AIResponse } from '@/types';
@@ -14,10 +14,10 @@ export interface AIProviderInterface {
   isAvailable(): boolean;
 }
 
-// --- GROK (xAI) PROVIDER ---
+// --- GROK (xAI) PROVIDER -> NOW RUNNING VIA GROQ FREE ---
 class GrokProvider implements AIProviderInterface {
   name: AIProvider = 'grok';
-  displayName = 'Grok (xAI)';
+  displayName = 'Groq (Free Cloud AI)';
 
   isAvailable(): boolean {
     return !!process.env.GROK_API_KEY;
@@ -25,21 +25,22 @@ class GrokProvider implements AIProviderInterface {
 
   async chat(messages: AIMessage[], systemPrompt?: string): Promise<AIResponse> {
     if (!this.isAvailable()) {
-      throw new Error('Grok API key not configured. Add GROK_API_KEY to .env.local');
+      throw new Error('Groq API key not configured. Add your gsk_ key to GROK_API_KEY in Vercel');
     }
 
     const allMessages = systemPrompt
       ? [{ role: 'system' as const, content: systemPrompt }, ...messages]
       : messages;
 
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    // تم تغيير الرابط هنا ليكلم سيرفر Groq السريع والمجاني بدلاً من xAI المدفوع
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'grok-2-1212',
+        model: 'llama-3.3-70b-versatile', // تم تعديل الموديل لأقوى موديل مجاني متاح في Groq حالياً
         messages: allMessages,
         temperature: 0.7,
         max_tokens: 2048,
@@ -48,7 +49,7 @@ class GrokProvider implements AIProviderInterface {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Grok API error: ${response.status} — ${error}`);
+      throw new Error(`Groq API error: ${response.status} — ${error}`);
     }
 
     const data = await response.json();
