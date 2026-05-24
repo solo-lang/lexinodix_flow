@@ -127,9 +127,9 @@ export default function SearchPage() {
 
           {filteredResults.length > 0 ? (
             <div className="space-y-2">
-              {filteredResults.map(result => {
-                const Icon = TYPE_ICONS[result.type];
-                const href = TYPE_HREFS[result.type]?.(result.id) ?? '/dashboard';
+              {(filteredResults as any[]).map(result => {
+                const Icon = TYPE_ICONS[result.type as keyof typeof TYPE_ICONS] || FileText;
+                const href = TYPE_HREFS[result.type as keyof typeof TYPE_HREFS]?.(result.id) ?? '/dashboard';
                 return (
                   <Link
                     key={result.id}
@@ -141,7 +141,7 @@ export default function SearchPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <h5 className="text-sm font-semibold text-dark-navy truncate">{result.title}</h5>
                         <span className="text-[10px] text-neutral-gray bg-warm-hover px-1.5 py-0.5 rounded shrink-0">
-                          {TYPE_LABELS[result.type]}
+                          {TYPE_LABELS[result.type as keyof typeof TYPE_LABELS] || 'Item'}
                         </span>
                       </div>
                       {result.excerpt && (
