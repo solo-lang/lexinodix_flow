@@ -39,7 +39,7 @@ class GrokProvider implements AIProviderInterface {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'grok-beta',
+        model: 'grok-2-1212',
         messages: allMessages,
         temperature: 0.7,
         max_tokens: 2048,
