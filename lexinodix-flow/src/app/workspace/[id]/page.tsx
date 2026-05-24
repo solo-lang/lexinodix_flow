@@ -10,7 +10,8 @@ interface Props { params: { id: string } }
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const supabase = createClient();
   const { data } = await supabase.from('workspaces').select('name').eq('id', params.id).single();
-  return { title: data?.name ?? 'Workspace' };
+  // استخدام as any لمنع خطأ الـ TypeScript عند جلب الاسم
+  return { title: (data as any)?.name ?? 'Workspace' };
 }
 
 export default async function WorkspaceDetailPage({ params }: Props) {
@@ -42,16 +43,16 @@ export default async function WorkspaceDetailPage({ params }: Props) {
         <div className="flex items-center gap-4 flex-1">
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-luxury shrink-0"
-            style={{ backgroundColor: workspace.color ?? '#011C26' }}
+            style={{ backgroundColor: (workspace as any).color ?? '#011C26' }}
           >
-            {workspace.icon ?? '📁'}
+            {(workspace as any).icon ?? '📁'}
           </div>
           <div>
-            <h1 className="font-sora text-2xl font-bold text-dark-navy">{workspace.name}</h1>
-            {workspace.description && (
-              <p className="text-sm text-neutral-gray mt-1">{workspace.description}</p>
+            <h1 className="font-sora text-2xl font-bold text-dark-navy">{(workspace as any).name}</h1>
+            {(workspace as any).description && (
+              <p className="text-sm text-neutral-gray mt-1">{(workspace as any).description}</p>
             )}
-            <p className="text-[11px] text-neutral-gray mt-1">Updated {timeAgo(workspace.updated_at)}</p>
+            <p className="text-[11px] text-neutral-gray mt-1">Updated {timeAgo((workspace as any).updated_at)}</p>
           </div>
         </div>
       </div>
@@ -59,21 +60,21 @@ export default async function WorkspaceDetailPage({ params }: Props) {
       {/* Quick actions */}
       <div className="flex gap-3 flex-wrap">
         <Link
-          href={`/notes/new?workspace=${workspace.id}`}
+          href={`/notes/new?workspace=${(workspace as any).id}`}
           className="flex items-center gap-2 px-4 py-2.5 bg-dark-navy text-white rounded-xl font-sora text-xs font-semibold hover:bg-deep-blue transition-colors shadow-luxury"
         >
           <Plus className="w-3.5 h-3.5" />
           New Note
         </Link>
         <Link
-          href={`/files?workspace=${workspace.id}`}
+          href={`/files?workspace=${(workspace as any).id}`}
           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-warm-border text-dark-navy rounded-xl font-sora text-xs font-semibold hover:bg-warm-hover transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
           Upload File
         </Link>
         <Link
-          href={`/chat?workspace=${workspace.id}`}
+          href={`/chat?workspace=${(workspace as any).id}`}
           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-warm-border text-dark-navy rounded-xl font-sora text-xs font-semibold hover:bg-warm-hover transition-colors"
         >
           <span className="text-warm-accent">✦</span>
@@ -91,7 +92,7 @@ export default async function WorkspaceDetailPage({ params }: Props) {
             </Link>
           </div>
           <div className="space-y-2">
-            {notes.map(note => (
+            {(notes as any[]).map(note => (
               <Link
                 key={note.id}
                 href={`/notes/${note.id}`}
@@ -121,7 +122,7 @@ export default async function WorkspaceDetailPage({ params }: Props) {
             </Link>
           </div>
           <div className="space-y-2">
-            {files.map(file => (
+            {(files as any[]).map(file => (
               <div key={file.id} className="flex items-center gap-3 p-3.5 bg-white border border-warm-border rounded-xl">
                 <HardDrive className="w-4 h-4 text-neutral-gray" />
                 <div>
@@ -139,7 +140,7 @@ export default async function WorkspaceDetailPage({ params }: Props) {
         <div className="text-center py-12">
           <p className="text-sm text-neutral-gray mb-4">This workspace is empty</p>
           <div className="flex gap-3 justify-center">
-            <Link href={`/notes/new?workspace=${workspace.id}`} className="btn-secondary text-sm">
+            <Link href={`/notes/new?workspace=${(workspace as any).id}`} className="btn-secondary text-sm">
               Create a note
             </Link>
           </div>
