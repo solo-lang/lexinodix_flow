@@ -63,7 +63,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
 
     // Get user name
     const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single();
-    userName = profile?.full_name ?? undefined;
+    userName = (profile as any)?.full_name ?? undefined;
 
     // Fetch notes content (user-scoped — RLS enforced)
     if (data.context?.notes?.length) {
