@@ -32,7 +32,7 @@ class GrokProvider implements AIProviderInterface {
       ? [{ role: 'system' as const, content: systemPrompt }, ...messages]
       : messages;
 
-    // تم تغيير الرابط هنا ليكلم سيرفر Groq السريع والمجاني بدلاً من xAI المدفوع
+    // تم توجيه الرابط وتثبيت الموديل لـ Groq مباشرة لقطع أي محاولة لاستدعاء grok-beta
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -40,8 +40,7 @@ class GrokProvider implements AIProviderInterface {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-model: (override as string) === 'grok-beta' ? 'llama-3.3-70b-versatile' : 'llama-3.3-70b-versatile',
-        
+        model: 'llama-3.3-70b-versatile',
         messages: allMessages,
         temperature: 0.7,
         max_tokens: 2048,
