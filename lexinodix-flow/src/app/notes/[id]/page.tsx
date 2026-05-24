@@ -10,7 +10,7 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const supabase = createClient();
   const { data } = await supabase.from('notes').select('title').eq('id', params.id).single();
-  return { title: data?.title ?? 'Note' };
+  return { title: (data as any)?.title ?? 'Note' };
 }
 
 export default async function NotePage({ params }: Props) {
@@ -30,12 +30,12 @@ export default async function NotePage({ params }: Props) {
   return (
     <div className="-mx-6 lg:-mx-8 -mt-6 lg:-mt-8 h-[calc(100vh-64px)]">
       <NoteEditor
-        noteId={note.id}
+        noteId={(note as any).id}
         initialData={{
-          title: note.title,
-          content: note.content as Record<string, unknown>,
-          tags: note.tags ?? [],
-          is_pinned: note.is_pinned ?? false,
+          title: (note as any).title,
+          content: (note as any).content as Record<string, unknown>,
+          tags: (note as any).tags ?? [],
+          is_pinned: (note as any).is_pinned ?? false,
         }}
       />
     </div>
