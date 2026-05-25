@@ -3,12 +3,22 @@
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { createClient } from '@/lib/supabase/client';
-import { formatFileSize, getFileIcon, getFileBadgeColor, getFileType, buildStoragePath, timeAgo } from '@/lib/utils';
+import {
+  formatFileSize,
+  getFileIcon,
+  getFileBadgeColor,
+  getFileType,
+  buildStoragePath,
+  timeAgo,
+  cn,
+} from '@/lib/utils';
 import { HardDrive, Loader2, MoreHorizontal, Trash2, MessageSquare, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import type { UserFile } from '@/types';
 import Link from 'next/link';
 
+// ─────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────
 type Filter = 'all' | 'pdf' | 'docx' | 'txt' | 'image';
 
 interface FileManagerProps {
@@ -16,6 +26,9 @@ interface FileManagerProps {
   userId: string;
 }
 
+// ─────────────────────────────────────────────
+// Accepted MIME types for react-dropzone
+// ─────────────────────────────────────────────
 const ACCEPTED_TYPES = {
   'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
@@ -25,38 +38,48 @@ const ACCEPTED_TYPES = {
   'image/webp': ['.webp'],
 };
 
+// ─────────────────────────────────────────────
+// FileManager Component
+// ─────────────────────────────────────────────
 export default function FileManager({ initialFiles, userId }: FileManagerProps) {
   const [files, setFiles] = useState<UserFile[]>(initialFiles);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const supabase = createClient();
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (!acceptedFiles.length) return;
-    setUploading(true);
-    setErrorMessage(null);
+  // ─── Upload handler ───────────────────────
+  const onDrop = useCallback(
+    async (acceptedFiles: File[]) => {
+      if (!acceptedFiles.length) return;
 
-    for (const file of acceptedFiles) {
-      const storagePath = buildStoragePath(userId, file.name);
-      let uploadSuccess = false;
+      setUploading(true);
+      setUploadError(null);
 
-      try {
-        // 1. Upload asset binary to Supabase Storage bucket
+      for (const file of acceptedFiles) {
+        // Build a unique path scoped to this user
+        const storagePath = buildStoragePath(userId, file.name);
+
+        // ── Step 1: Upload binary to Supabase Storage ──
         const { error: uploadError } = await supabase.storage
-          .from('user-files')
+          .from('user-files') // live bucket name
           .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
         if (uploadError) {
-          throw new Error(`Storage upload failed: ${uploadError.message}`);
+          console.error('[FileManager] Storage upload failed:', uploadError.message);
+          setUploadError(`Upload failed: ${uploadError.message}`);
+          continue; // skip DB insert — nothing to roll back
         }
-        uploadSuccess = true;
 
-        // 2. Register file metadata inside public.files table
+        // ── Step 2: Insert file metadata into public.files ──
+        // IMPORTANT: Use .select() WITHOUT .single() to avoid runtime exceptions
+        // when the response shape is unexpected or latency is high.
         const fileType = getFileType(file.type);
-        const { data: dbData, error: dbError } = await (supabase
-          .from('files') as any)
+        const now = new Date().toISOString();
+
+        const { data: insertedRows, error: dbError } = await supabase
+          .from('files') // live table: public.files
           .insert({
             user_id: userId,
             name: storagePath.split('/').pop()!,
@@ -67,78 +90,89 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
             size_bytes: file.size,
             is_indexed: false,
             metadata: {},
+            // workspace_id and folder_id are intentionally omitted here;
+            // Supabase will store NULL for them which is valid per the schema.
           })
-          .select();
+          .select(); // returns an array — safe, no .single() crash risk
 
         if (dbError) {
-          throw new Error(`Database record insertion failed: ${dbError.message}`);
-        }
-
-        // 3. Commit new record securely to local state
-        if (dbData && dbData.length > 0) {
-          setFiles(prev => [dbData[0], ...prev]);
-        } else {
-          // Fallback safely into an instantaneous client-side object if db returns empty row
-          const fallbackFile: UserFile = {
-            id: Math.random().toString(), 
-            user_id: userId,
-            workspace_id: null as any, // تدمير القيود وإرضاء الـ TypeScript بنجاح
-            folder_id: null as any,    // تدمير القيود وإرضاء الـ TypeScript بنجاح
-            name: storagePath.split('/').pop()!,
-            original_name: file.name,
-            storage_path: storagePath,
-            file_type: fileType,
-            mime_type: file.type,
-            size_bytes: file.size,
-            is_indexed: false,
-            metadata: {},
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          setFiles(prev => [fallbackFile, ...prev]);
-        }
-
-      } catch (err: any) {
-        console.error('[FILE_MANAGER_UPLOAD_ERROR]:', err);
-        setErrorMessage(err.message || 'An unexpected error occurred during upload.');
-        
-        // Rollback strategy: Clean storage if db entry registration completely fails
-        if (uploadSuccess) {
+          // ── Rollback: remove the already-uploaded storage file ──
+          console.error('[FileManager] DB insert failed — rolling back storage:', dbError.message);
           await supabase.storage.from('user-files').remove([storagePath]);
+          setUploadError(`Database error: ${dbError.message}`);
+          continue;
         }
+
+        // ── Step 3: Update UI state ──
+        // Prefer the row returned by Supabase. If for any reason the array is
+        // empty (e.g. RLS is temporarily misconfigured), fall back to a locally
+        // constructed object so the file still appears in the UI immediately.
+        const returnedRow = insertedRows?.[0];
+
+        const newFile: UserFile = returnedRow ?? {
+          id: `temp-${Date.now()}-${Math.random()}`,
+          user_id: userId,
+          workspace_id: null as any, // nullable in schema; cast to satisfy strict type
+          folder_id: null as any,    // nullable in schema; cast to satisfy strict type
+          name: storagePath.split('/').pop()!,
+          original_name: file.name,
+          storage_path: storagePath,
+          file_type: fileType,
+          mime_type: file.type,
+          size_bytes: file.size,
+          is_indexed: false,
+          metadata: {},
+          created_at: now,
+          updated_at: now,
+        };
+
+        // Prepend to list so newest file appears first
+        setFiles((prev) => [newFile, ...prev]);
       }
-    }
 
-    setUploading(false);
-  }, [userId, supabase]);
+      setUploading(false);
+    },
+    [userId, supabase]
+  );
 
+  // ─── Dropzone setup ───────────────────────
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: ACCEPTED_TYPES,
-    maxSize: 50 * 1024 * 1024, // 50MB Limit
+    maxSize: 50 * 1024 * 1024, // 50 MB hard cap
   });
 
+  // ─── Delete handler ───────────────────────
   const deleteFile = async (file: UserFile) => {
-    try {
-      setErrorMessage(null);
-      // Remove asset safely from storage bucket
-      const { error: storageErr } = await supabase.storage.from('user-files').remove([file.storage_path]);
-      if (storageErr) throw new Error(`Failed to remove file from storage: ${storageErr.message}`);
+    // Remove from Supabase Storage first
+    const { error: storageErr } = await supabase.storage
+      .from('user-files')
+      .remove([file.storage_path]);
 
-      // Delete relational entry safely from target table
-      const { error: dbErr } = await (supabase.from('files') as any).delete().eq('id', file.id).eq('user_id', userId);
-      if (dbErr) throw new Error(`Failed to remove database record: ${dbErr.message}`);
-
-      setFiles(prev => prev.filter(f => f.id !== file.id));
-    } catch (err: any) {
-      console.error('[FILE_MANAGER_DELETE_ERROR]:', err);
-      setErrorMessage(err.message || 'Failed to safely delete the selected asset.');
-    } finally {
-      setOpenMenu(null);
+    if (storageErr) {
+      console.error('[FileManager] Storage delete failed:', storageErr.message);
     }
+
+    // Remove metadata row from public.files
+    const { error: dbErr } = await supabase
+      .from('files')
+      .delete()
+      .eq('id', file.id)
+      .eq('user_id', userId); // explicit ownership guard
+
+    if (dbErr) {
+      console.error('[FileManager] DB delete failed:', dbErr.message);
+    }
+
+    // Remove from local state regardless — prevents stale UI
+    setFiles((prev) => prev.filter((f) => f.id !== file.id));
+    setOpenMenu(null);
   };
 
-  const filteredFiles = filter === 'all' ? files : files.filter(f => f.file_type === filter);
+  // ─── Derived state ────────────────────────
+  const filteredFiles =
+    filter === 'all' ? files : files.filter((f) => f.file_type === filter);
+
   const filters: { label: string; value: Filter }[] = [
     { label: 'All Assets', value: 'all' },
     { label: 'PDFs', value: 'pdf' },
@@ -147,28 +181,37 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
     { label: 'Images', value: 'image' },
   ];
 
+  // ─────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────
   return (
     <div className="space-y-8">
-      {/* Header View */}
+
+      {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-sora text-xl font-bold text-dark-navy">Files Locker</h1>
-          <p className="text-sm text-neutral-gray mt-1">{files.length} files stored securely</p>
+          <p className="text-sm text-neutral-gray mt-1">
+            {files.length} file{files.length !== 1 ? 's' : ''} stored securely
+          </p>
         </div>
       </div>
 
-      {/* Global Contextual Error Alert Banner */}
-      {errorMessage && (
-        <div className="flex items-center gap-2.5 p-4 bg-red-50 border border-red-200 text-red-700 text-xs font-medium rounded-xl animate-in fade-in duration-200">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-          <p className="flex-1">{errorMessage}</p>
-          <button onClick={() => setErrorMessage(null)} className="hover:underline opacity-70 hover:opacity-100 ml-auto">
-            Dismiss
+      {/* ── Error banner ── */}
+      {uploadError && (
+        <div className="flex items-center gap-2.5 p-3.5 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 font-medium">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {uploadError}
+          <button
+            onClick={() => setUploadError(null)}
+            className="ml-auto text-red-400 hover:text-red-700"
+          >
+            ✕
           </button>
         </div>
       )}
 
-      {/* Drop Zone Intermediary */}
+      {/* ── Drop Zone ── */}
       <div
         {...getRootProps()}
         className={cn(
@@ -182,7 +225,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-dark-navy animate-spin" />
-            <p className="text-sm font-semibold text-dark-navy">Uploading asset safely…</p>
+            <p className="text-sm font-semibold text-dark-navy">Uploading to vault…</p>
           </div>
         ) : (
           <>
@@ -190,14 +233,14 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
             <h5 className="font-sora text-sm font-bold text-dark-navy mb-1">
               {isDragActive ? 'Drop your files here' : 'Drop files into the vault'}
             </h5>
-            <p className="text-xs text-neutral-gray">PDF, DOCX, TXT, PNG, JPG up to 50MB</p>
+            <p className="text-xs text-neutral-gray">PDF, DOCX, TXT, PNG, JPG — up to 50 MB</p>
           </>
         )}
       </div>
 
-      {/* Categorized Token Navigation Filters */}
+      {/* ── Type filters ── */}
       <div className="flex gap-2 flex-wrap">
-        {filters.map(f => (
+        {filters.map((f) => (
           <button
             key={f.value}
             onClick={() => setFilter(f.value)}
@@ -213,36 +256,50 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
         ))}
       </div>
 
-      {/* Active Indexed File Grid View */}
+      {/* ── File list ── */}
       {filteredFiles.length > 0 ? (
         <div className="space-y-2">
           <span className="text-label text-neutral-gray block">
-            {filter === 'all' ? 'All Files' : filters.find(f => f.value === filter)?.label}
-            <span className="ml-2 font-normal lowercase text-[10px]">({filteredFiles.length})</span>
+            {filter === 'all'
+              ? 'All Files'
+              : filters.find((f) => f.value === filter)?.label}
+            <span className="ml-2 font-normal lowercase text-[10px]">
+              ({filteredFiles.length})
+            </span>
           </span>
 
-          {filteredFiles.map(file => (
+          {filteredFiles.map((file) => (
             <div
               key={file.id}
               className="flex items-center gap-3 p-4 bg-white border border-warm-border rounded-xl hover:border-dark-navy transition-all duration-200 group"
             >
-              {/* Specialized Dynamic File Icon */}
+              {/* File type badge */}
               <div className="w-10 h-12 bg-warm-surface border border-warm-border rounded-lg flex flex-col items-center justify-center gap-1 shrink-0">
-                <span className={cn('text-[9px] font-bold uppercase', getFileBadgeColor(file.file_type).split(' ')[0])}>
+                <span
+                  className={cn(
+                    'text-[9px] font-bold uppercase',
+                    getFileBadgeColor(file.file_type).split(' ')[0]
+                  )}
+                >
                   {file.file_type.toUpperCase()}
                 </span>
                 <span className="text-lg leading-none">{getFileIcon(file.file_type)}</span>
               </div>
 
+              {/* File info */}
               <div className="flex-1 min-w-0">
-                <h6 className="text-sm font-semibold text-dark-navy truncate">{file.original_name}</h6>
+                <h6 className="text-sm font-semibold text-dark-navy truncate">
+                  {file.original_name}
+                </h6>
                 <p className="text-[11px] text-neutral-gray mt-0.5">
                   {formatFileSize(file.size_bytes)} · {timeAgo(file.created_at)}
-                  {file.is_indexed && <span className="ml-2 text-emerald-600 font-medium">· AI indexed</span>}
+                  {file.is_indexed && (
+                    <span className="ml-2 text-emerald-600 font-medium">· AI indexed</span>
+                  )}
                 </p>
               </div>
 
-              {/* Scope-Aware Dashboard Action Links */}
+              {/* Hover actions */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Link
                   href={`/chat?file=${file.id}`}
@@ -254,7 +311,9 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
 
                 <div className="relative">
                   <button
-                    onClick={() => setOpenMenu(openMenu === file.id ? null : file.id)}
+                    onClick={() =>
+                      setOpenMenu(openMenu === file.id ? null : file.id)
+                    }
                     className="p-1.5 rounded-lg text-neutral-gray hover:text-dark-navy hover:bg-warm-hover transition-colors"
                   >
                     <MoreHorizontal className="w-4 h-4" />
