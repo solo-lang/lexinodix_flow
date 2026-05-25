@@ -14,10 +14,13 @@ export interface AIProviderInterface {
   isAvailable(): boolean;
 }
 
-// --- GROK (xAI) PROVIDER ---
+// --- GROQ PROVIDER (llama-3.3-70b-versatile) ---
+// NOTE: We use Groq's API (api.groq.com) — NOT xAI.
+// The env variable is still named GROK_API_KEY for backwards-compat.
+// Model: llama-3.3-70b-versatile (free, fast, high-quality)
 class GrokProvider implements AIProviderInterface {
   name: AIProvider = 'grok';
-  displayName = 'Grok (xAI)';
+  displayName = 'Groq — Llama 3.3 70B';
 
   isAvailable(): boolean {
     return !!process.env.GROK_API_KEY;
@@ -25,34 +28,39 @@ class GrokProvider implements AIProviderInterface {
 
   async chat(messages: AIMessage[], systemPrompt?: string): Promise<AIResponse> {
     if (!this.isAvailable()) {
-      throw new Error('Grok API key not configured. Add GROK_API_KEY to .env.local');
+      throw new Error('Groq API key not configured. Add GROK_API_KEY to .env.local');
     }
 
-    const allMessages = systemPrompt
-      ? [{ role: 'system' as const, content: systemPrompt }, ...messages]
-      : messages;
+    // Build message list — system prompt goes first if provided
+    const allMessages: { role: string; content: string }[] = systemPrompt
+      ? [{ role: 'system', content: systemPrompt }, ...messages]
+      : [...messages];
 
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    // IMPORTANT: Do NOT include 'model' inside the messages array.
+    // 'model' is a top-level key only — duplicate keys cause Webpack/Vercel build failures.
+    const requestBody = {
+      model: 'llama-3.3-70b-versatile',
+      messages: allMessages,
+      temperature: 0.7,
+      max_tokens: 2048,
+    };
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'grok-2-latest',
-        messages: allMessages,
-        temperature: 0.7,
-        max_tokens: 2048,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Grok API error: ${response.status} — ${error}`);
+      const errorText = await response.text();
+      throw new Error(`Groq API error ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content ?? '';
+    const content: string = data.choices?.[0]?.message?.content ?? '';
 
     return {
       content,
@@ -65,13 +73,15 @@ class GrokProvider implements AIProviderInterface {
   }
 
   async summarize(text: string): Promise<string> {
-    const result = await this.chat([
-      {
-        role: 'user',
-        content: `Please provide a concise, intelligent summary of the following content. Focus on key insights, main points, and actionable information. Keep the summary clear and well-structured.\n\n---\n\n${text}`,
-      },
-    ], 'You are an intelligent workspace assistant for Lexinodix Flow. Your summaries are clear, concise, and insightful. You focus on extracting the most valuable information.');
-
+    const result = await this.chat(
+      [
+        {
+          role: 'user',
+          content: `Please provide a concise, intelligent summary of the following content. Focus on key insights, main points, and actionable information. Keep the summary clear and well-structured.\n\n---\n\n${text}`,
+        },
+      ],
+      'You are an intelligent workspace assistant for Lexinodix Flow. Your summaries are clear, concise, and insightful. You focus on extracting the most valuable information.'
+    );
     return result.content;
   }
 }
