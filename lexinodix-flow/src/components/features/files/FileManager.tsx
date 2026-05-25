@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { createClient } from '@/lib/supabase/client';
 import { formatFileSize, getFileIcon, getFileBadgeColor, getFileType, buildStoragePath, timeAgo } from '@/lib/utils';
-import { HardDrive, Plus, Loader2, MoreHorizontal, Trash2, MessageSquare } from 'lucide-react';
+import { HardDrive, Loader2, MoreHorizontal, Trash2, MessageSquare, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { UserFile } from '@/types';
 import Link from 'next/link';
@@ -30,24 +30,30 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const supabase = createClient();
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!acceptedFiles.length) return;
     setUploading(true);
+    setErrorMessage(null);
 
     for (const file of acceptedFiles) {
-      try {
-        const storagePath = buildStoragePath(userId, file.name);
+      const storagePath = buildStoragePath(userId, file.name);
+      let uploadSuccess = false;
 
-        // 1. الرفع إلى الـ Supabase Storage
+      try {
+        // 1. Upload asset binary to Supabase Storage bucket
         const { error: uploadError } = await supabase.storage
           .from('user-files')
           .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          throw new Error(`Storage upload failed: ${uploadError.message}`);
+        }
+        uploadSuccess = true;
 
-        // 2. إدخال البيانات في جدول الـ files الحقيقي وحذف الـ .single() لتجنب الـ Crash
+        // 2. Register file metadata inside public.files table
         const fileType = getFileType(file.type);
         const { data: dbData, error: dbError } = await (supabase
           .from('files') as any)
@@ -64,16 +70,20 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
           })
           .select();
 
-        if (dbError) throw dbError;
+        if (dbError) {
+          throw new Error(`Database record insertion failed: ${dbError.message}`);
+        }
 
-        // 3. تحديث الـ State فوراً في الـ UI بناءً على استجابة قاعدة البيانات
+        // 3. Commit new record securely to local state
         if (dbData && dbData.length > 0) {
           setFiles(prev => [dbData[0], ...prev]);
         } else {
-          // خطة بديلة (Fallback) لبناء كائن محلي سريع يظهر في الواجهة فوراً ولا يختفي
+          // Fallback safely into an instantaneous client-side object if db returns empty row
           const fallbackFile: UserFile = {
             id: Math.random().toString(), 
             user_id: userId,
+            workspace_id: null as any, // تدمير القيود وإرضاء الـ TypeScript بنجاح
+            folder_id: null as any,    // تدمير القيود وإرضاء الـ TypeScript بنجاح
             name: storagePath.split('/').pop()!,
             original_name: file.name,
             storage_path: storagePath,
@@ -88,8 +98,14 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
           setFiles(prev => [fallbackFile, ...prev]);
         }
 
-      } catch (err) {
-        console.error('Upload error detailed:', err);
+      } catch (err: any) {
+        console.error('[FILE_MANAGER_UPLOAD_ERROR]:', err);
+        setErrorMessage(err.message || 'An unexpected error occurred during upload.');
+        
+        // Rollback strategy: Clean storage if db entry registration completely fails
+        if (uploadSuccess) {
+          await supabase.storage.from('user-files').remove([storagePath]);
+        }
       }
     }
 
@@ -99,16 +115,27 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: ACCEPTED_TYPES,
-    maxSize: 50 * 1024 * 1024, // 50MB
+    maxSize: 50 * 1024 * 1024, // 50MB Limit
   });
 
   const deleteFile = async (file: UserFile) => {
-    // Remove from storage
-    await supabase.storage.from('user-files').remove([file.storage_path]);
-    // تأمين عملية الحذف بـ as any للجدول الحقيقي
-    await (supabase.from('files') as any).delete().eq('id', file.id).eq('user_id', userId);
-    setFiles(prev => prev.filter(f => f.id !== file.id));
-    setOpenMenu(null);
+    try {
+      setErrorMessage(null);
+      // Remove asset safely from storage bucket
+      const { error: storageErr } = await supabase.storage.from('user-files').remove([file.storage_path]);
+      if (storageErr) throw new Error(`Failed to remove file from storage: ${storageErr.message}`);
+
+      // Delete relational entry safely from target table
+      const { error: dbErr } = await (supabase.from('files') as any).delete().eq('id', file.id).eq('user_id', userId);
+      if (dbErr) throw new Error(`Failed to remove database record: ${dbErr.message}`);
+
+      setFiles(prev => prev.filter(f => f.id !== file.id));
+    } catch (err: any) {
+      console.error('[FILE_MANAGER_DELETE_ERROR]:', err);
+      setErrorMessage(err.message || 'Failed to safely delete the selected asset.');
+    } finally {
+      setOpenMenu(null);
+    }
   };
 
   const filteredFiles = filter === 'all' ? files : files.filter(f => f.file_type === filter);
@@ -122,7 +149,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
 
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {/* Header View */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-sora text-xl font-bold text-dark-navy">Files Locker</h1>
@@ -130,7 +157,18 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
         </div>
       </div>
 
-      {/* Drop Zone */}
+      {/* Global Contextual Error Alert Banner */}
+      {errorMessage && (
+        <div className="flex items-center gap-2.5 p-4 bg-red-50 border border-red-200 text-red-700 text-xs font-medium rounded-xl animate-in fade-in duration-200">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+          <p className="flex-1">{errorMessage}</p>
+          <button onClick={() => setErrorMessage(null)} className="hover:underline opacity-70 hover:opacity-100 ml-auto">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Drop Zone Intermediary */}
       <div
         {...getRootProps()}
         className={cn(
@@ -144,7 +182,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-dark-navy animate-spin" />
-            <p className="text-sm font-semibold text-dark-navy">Uploading…</p>
+            <p className="text-sm font-semibold text-dark-navy">Uploading asset safely…</p>
           </div>
         ) : (
           <>
@@ -157,7 +195,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
         )}
       </div>
 
-      {/* Filters */}
+      {/* Categorized Token Navigation Filters */}
       <div className="flex gap-2 flex-wrap">
         {filters.map(f => (
           <button
@@ -175,7 +213,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
         ))}
       </div>
 
-      {/* File List */}
+      {/* Active Indexed File Grid View */}
       {filteredFiles.length > 0 ? (
         <div className="space-y-2">
           <span className="text-label text-neutral-gray block">
@@ -188,7 +226,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
               key={file.id}
               className="flex items-center gap-3 p-4 bg-white border border-warm-border rounded-xl hover:border-dark-navy transition-all duration-200 group"
             >
-              {/* File Type Icon */}
+              {/* Specialized Dynamic File Icon */}
               <div className="w-10 h-12 bg-warm-surface border border-warm-border rounded-lg flex flex-col items-center justify-center gap-1 shrink-0">
                 <span className={cn('text-[9px] font-bold uppercase', getFileBadgeColor(file.file_type).split(' ')[0])}>
                   {file.file_type.toUpperCase()}
@@ -204,7 +242,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
                 </p>
               </div>
 
-              {/* Actions */}
+              {/* Scope-Aware Dashboard Action Links */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Link
                   href={`/chat?file=${file.id}`}
