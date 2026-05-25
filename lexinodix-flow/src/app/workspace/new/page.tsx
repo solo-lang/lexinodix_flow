@@ -26,19 +26,32 @@ export default function NewWorkspacePage() {
     setError(null);
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) { setLoading(false); return; }
 
-    // وضعنا الـ as any هنا مباشرة بعد الـ from لتدمير أي قيود من الـ TypeScript تماماً
-    const { data, error } = await (supabase.from('workspaces') as any)
-      .insert({ user_id: user.id, name: name.trim(), description: description.trim() || null, color, icon })
-      .select('id')
-      .single();
+    // BUG FIX: use .select() array + rows[0] instead of .single()
+    const { data: rows, error: dbError } = await supabase
+      .from('workspaces')
+      .insert({
+        user_id: user.id,
+        name: name.trim(),
+        description: description.trim() || null,
+        color,
+        icon,
+      })
+      .select('id');
 
-    if (error) {
-      setError(error.message);
+    if (dbError) {
+      setError(dbError.message);
       setLoading(false);
+      return;
+    }
+
+    const newId = rows?.[0]?.id;
+    if (newId) {
+      router.push(`/workspace/${newId}`);
     } else {
-      router.push(`/workspace/${data.id}`);
+      setError('Workspace created but could not retrieve ID. Please refresh.');
+      setLoading(false);
     }
   };
 
@@ -56,12 +69,8 @@ export default function NewWorkspacePage() {
           <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700">{error}</div>
         )}
 
-        {/* Preview */}
         <div className="flex items-center gap-4 p-5 bg-white border border-warm-border rounded-2xl">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-luxury"
-            style={{ backgroundColor: color }}
-          >
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-luxury" style={{ backgroundColor: color }}>
             {icon}
           </div>
           <div>
@@ -70,71 +79,36 @@ export default function NewWorkspacePage() {
           </div>
         </div>
 
-        {/* Name */}
         <div>
-          <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-gray mb-2">
-            Workspace Name
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="e.g. Product Strategy 2026"
-            required
-            maxLength={100}
-            className="input-field"
-          />
+          <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-gray mb-2">Workspace Name</label>
+          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Product Strategy 2026" required maxLength={100} className="input-field" />
         </div>
 
-        {/* Description */}
         <div>
-          <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-gray mb-2">
-            Description (Optional)
-          </label>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="What is this workspace for?"
-            rows={3}
-            maxLength={500}
-            className="input-field resize-none"
-          />
+          <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-gray mb-2">Description (Optional)</label>
+          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What is this workspace for?" rows={3} maxLength={500} className="input-field resize-none" />
         </div>
 
-        {/* Icon picker */}
         <div>
           <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-gray mb-2">Icon</label>
           <div className="flex gap-2 flex-wrap">
             {WORKSPACE_ICONS.map(ic => (
-              <button
-                key={ic}
-                type="button"
-                onClick={() => setIcon(ic)}
-                className={`w-10 h-10 rounded-xl text-lg flex items-center justify-center transition-all ${
-                  icon === ic ? 'bg-dark-navy shadow-luxury scale-110' : 'bg-warm-hover hover:bg-warm-border'
-                }`}
-              >
+              <button key={ic} type="button" onClick={() => setIcon(ic)}
+                className={`w-10 h-10 rounded-xl text-lg flex items-center justify-center transition-all ${icon === ic ? 'bg-dark-navy shadow-luxury scale-110' : 'bg-warm-hover hover:bg-warm-border'}`}>
                 {ic}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Color picker */}
         <div>
           <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-gray mb-2">Color</label>
           <div className="flex gap-2 flex-wrap">
             {WORKSPACE_COLORS.map(c => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setColor(c)}
+              <button key={c} type="button" onClick={() => setColor(c)}
                 className="w-8 h-8 rounded-lg relative transition-transform hover:scale-110"
-                style={{ backgroundColor: c }}
-              >
-                {color === c && (
-                  <Check className="w-4 h-4 text-white absolute inset-0 m-auto" />
-                )}
+                style={{ backgroundColor: c }}>
+                {color === c && <Check className="w-4 h-4 text-white absolute inset-0 m-auto" />}
               </button>
             ))}
           </div>
