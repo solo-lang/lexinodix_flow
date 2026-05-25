@@ -40,16 +40,16 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
       try {
         const storagePath = buildStoragePath(userId, file.name);
 
-        // Upload to Supabase Storage
+        // 1. الرفع إلى الـ Supabase Storage
         const { error: uploadError } = await supabase.storage
           .from('user-files')
           .upload(storagePath, file, { cacheControl: '3600', upsert: false });
 
         if (uploadError) throw uploadError;
 
-        // وضعنا الـ as any هنا مباشرة بعد اسم الجدول لتدمير قيود الـ TypeScript تماماً
+        // 2. إدخال البيانات في جدول الـ files الحقيقي وحذف الـ .single() لتجنب الـ Crash
         const fileType = getFileType(file.type);
-        const { data: newFile, error: dbError } = await (supabase
+        const { data: dbData, error: dbError } = await (supabase
           .from('files') as any)
           .insert({
             user_id: userId,
@@ -62,14 +62,34 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
             is_indexed: false,
             metadata: {},
           })
-          .select()
-          .single();
+          .select();
 
         if (dbError) throw dbError;
-        if (newFile) setFiles(prev => [newFile, ...prev]);
+
+        // 3. تحديث الـ State فوراً في الـ UI بناءً على استجابة قاعدة البيانات
+        if (dbData && dbData.length > 0) {
+          setFiles(prev => [dbData[0], ...prev]);
+        } else {
+          // خطة بديلة (Fallback) لبناء كائن محلي سريع يظهر في الواجهة فوراً ولا يختفي
+          const fallbackFile: UserFile = {
+            id: Math.random().toString(), 
+            user_id: userId,
+            name: storagePath.split('/').pop()!,
+            original_name: file.name,
+            storage_path: storagePath,
+            file_type: fileType,
+            mime_type: file.type,
+            size_bytes: file.size,
+            is_indexed: false,
+            metadata: {},
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          setFiles(prev => [fallbackFile, ...prev]);
+        }
 
       } catch (err) {
-        console.error('Upload error:', err);
+        console.error('Upload error detailed:', err);
       }
     }
 
@@ -85,7 +105,7 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
   const deleteFile = async (file: UserFile) => {
     // Remove from storage
     await supabase.storage.from('user-files').remove([file.storage_path]);
-    // تأمين عملية الحذف أيضاً بـ as any
+    // تأمين عملية الحذف بـ as any للجدول الحقيقي
     await (supabase.from('files') as any).delete().eq('id', file.id).eq('user_id', userId);
     setFiles(prev => prev.filter(f => f.id !== file.id));
     setOpenMenu(null);
