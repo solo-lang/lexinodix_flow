@@ -112,8 +112,8 @@ export default function FileManager({ initialFiles, userId }: FileManagerProps) 
         const newFile: UserFile = returnedRow ?? {
           id: `temp-${Date.now()}-${Math.random()}`,
           user_id: userId,
-          workspace_id: null as any, // nullable in schema; cast to satisfy strict type
-          folder_id: null as any,    // nullable in schema; cast to satisfy strict type
+          workspace_id: null,
+          folder_id: null,
           name: storagePath.split('/').pop()!,
           original_name: file.name,
           storage_path: storagePath,
